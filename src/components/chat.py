@@ -410,10 +410,17 @@ class ChatWidget(ft.Column):
                 return
             
         except Exception as e:
-            self.add_message("❌ Sorry, I encountered an error. Please try again.", is_user=False)
-            print(f"Error in process_command: {e}")
             import traceback
-            traceback.print_exc()
+            error_details = traceback.format_exc()
+            print(f"Error in process_command: {e}")
+            print(f"Full traceback:\n{error_details}")
+            
+            # Показываем пользователю дружелюбное сообщение
+            self.add_message(
+                "😅 Oops! Something went wrong. Could you try rephrasing your request?\n\n"
+                "💡 Tip: Try one task at a time for best results!",
+                is_user=False
+            )
     def refresh_calendar(self):
         """Универсальный метод обновления календаря"""
         if self.on_refresh:

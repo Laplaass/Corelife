@@ -9,11 +9,11 @@ class Header(ft.AppBar):
         self.on_theme_change = on_theme_change
         self.leading = ft.IconButton(ft.Icons.MENU, on_click=on_menu_click)
         self.leading_width = 40
-        self.title = ft.Text("Calendar", weight=ft.FontWeight.BOLD, size=22)
+        self.title = ft.Text("Corelife", weight=ft.FontWeight.BOLD, size=22)  # ✅ Изменено с Calendar на Corelife
         self.center_title = False
         self.bgcolor = ft.Colors.SURFACE
         
-        # Создаем кнопку темы и сохраняем ссылку
+        # Создаем кнопку темы и сохраняем ссылку ✅
         self.theme_button = ft.IconButton(
             icon=ft.Icons.DARK_MODE_OUTLINED,
             selected_icon=ft.Icons.LIGHT_MODE_OUTLINED,
@@ -24,7 +24,7 @@ class Header(ft.AppBar):
         self.actions = [
             ft.IconButton(ft.Icons.SEARCH, on_click=self.show_search, tooltip="Search"),
             ft.IconButton(ft.Icons.HELP_OUTLINE, on_click=self.show_help, tooltip="Help"),
-            self.theme_button,  # Используем сохраненную ссылку
+            self.theme_button,  # ✅ Используем сохраненную ссылку
             ft.IconButton(ft.Icons.SETTINGS, on_click=self.show_settings, tooltip="Settings"),
             ft.Container(width=10),
             ft.GestureDetector(
@@ -38,13 +38,12 @@ class Header(ft.AppBar):
             ft.Container(width=10),
         ]
 
-
     def on_account_tap(self, e):
         if self.on_account_click:
             self.on_account_click()
 
     def toggle_theme(self, e):
-        """Переключение между светлой и тёмной темой"""
+        """Переключение между светлой и тёмной темой ✅ ИСПРАВЛЕНО"""
         if self.page_ref.theme_mode == ft.ThemeMode.LIGHT:
             self.page_ref.theme_mode = ft.ThemeMode.DARK
             self.theme_button.icon = ft.Icons.LIGHT_MODE_OUTLINED

@@ -160,12 +160,15 @@ class MonthView(ft.Column):
                         spacing=2,
                     )
                     
+                    # ✅ ИСПРАВЛЕНО: Убрали SURFACE_VARIANT, используем условную проверку темы
+                    cell_bgcolor = ft.Colors.SURFACE if self.page.theme_mode == ft.ThemeMode.DARK else ft.Colors.WHITE
+                    
                     row_controls.append(
                         ft.Container(
                             content=day_content,
                             expand=True,
-                            bgcolor=ft.Colors.SURFACE if self.page.theme_mode == ft.ThemeMode.DARK else ft.Colors.WHITE,
-                            border=ft.border.all(0.5, ft.Colors.OUTLINE_VARIANT),
+                            bgcolor=cell_bgcolor,  # Адаптируется к теме
+                            border=ft.border.all(0.5, ft.Colors.GREY_300),
                             padding=0,
                             alignment=ft.alignment.top_center,
                             on_click=lambda e, d=day, m=month, y=year: self.handle_day_click(y, m, d),
@@ -193,7 +196,6 @@ class MonthView(ft.Column):
         self.current_date = self.current_date.replace(year=year, month=month, day=1)
         
         # Update header text
-        # Update header text
         month_name = translations.get("months")[month - 1]
         self.controls[0].controls[0].controls[1].value = f"{month_name} {year}"
         
@@ -210,7 +212,6 @@ class MonthView(ft.Column):
         self.current_date = self.current_date.replace(year=year, month=month, day=1)
         
         # Update header text
-        # Update header text
         month_name = translations.get("months")[month - 1]
         self.controls[0].controls[0].controls[1].value = f"{month_name} {year}"
         
@@ -222,8 +223,8 @@ class MonthView(ft.Column):
         self.page.open(dialog)
 
     def refresh_calendar(self):
-        self.render_calendar()
-        self.update()
+        """✅ ИСПРАВЛЕНО: Теперь вызывает load_events() для полной перезагрузки данных"""
+        self.load_events()  # Вместо просто render_calendar()
 
     def update_filter(self, filters):
         self.filters = filters

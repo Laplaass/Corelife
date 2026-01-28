@@ -282,5 +282,84 @@ class EventStore:
         free_slots.sort(key=lambda x: x["score"], reverse=True)
         return free_slots
 
+    def save_diet_preferences(self, user_id, preferences):
+        """Сохраняет предпочтения пользователя по диете"""
+        try:
+            # ✅ ИСПРАВЛЕНО: Конвертируем все списки в строки для совместимости с MongoDB
+            # MongoDB может хранить списки, но иногда возникают проблемы с хешированием
+            
+            # Создаём копию чтобы не изменять оригинальный словарь
+            safe_preferences = {}
+            
+            for key, value in preferences.items():
+                # Если значение - список, сохраняем как есть (MongoDB поддерживает массивы)
+                # Но убеждаемся что это простые типы данных
+                if isinstance(value, list):
+                    # Конвертируем все элементы списка в строки
+                    safe_preferences[key] = [str(item) for item in value]
+                else:
+                    safe_preferences[key] = str(value)
+            
+            self.db.users.update_one(
+                {"_id": user_id},
+                {"$set": {"diet_preferences": safe_preferences}},
+                upsert=True
+            )
+            return True
+        except Exception as e:
+            print(f"Error saving diet preferences: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+
+    def get_diet_preferences(self, user_id):
+        """Получает предпочтения пользователя по диете"""
+        try:
+            user = self.db.users.find_one({"_id": user_id})
+            if user and "diet_preferences" in user:
+                return user["diet_preferences"]
+            return None
+        except Exception as e:
+            print(f"Error getting diet preferences: {e}")
+            return None
+
+    def save_user_goals(self, user_id, goals):
+        """Сохраняет цели пользователя (time_management, diet)"""
+        try:
+            self.db.users.update_one(
+                {"_id": user_id},
+                {"$set": {
+                    "goals": goals,
+                    "onboarding_completed": True
+                }},
+                upsert=True
+            )
+            return True
+        except Exception as e:
+            print(f"Error saving user goals: {e}")
+            return False
+
+    def get_user_goals(self, user_id):
+        """Получает цели пользователя"""
+        try:
+            user = self.db.users.find_one({"_id": user_id})
+            if user and "goals" in user:
+                return user["goals"]
+            return []
+        except Exception as e:
+            print(f"Error getting user goals: {e}")
+            return []
+
+    def has_completed_onboarding(self, user_id):
+        """Проверяет прошёл ли пользователь онбординг"""
+        try:
+            user = self.db.users.find_one({"_id": user_id})
+            if user:
+                return user.get("onboarding_completed", False)
+            return False
+        except Exception as e:
+            print(f"Error checking onboarding: {e}")
+            return False
+
 # Global instance
 store = EventStore()

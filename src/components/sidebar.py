@@ -31,6 +31,7 @@ class Sidebar(ft.Container):
                 ft.TextButton(translations.get("month_view"), on_click=lambda e: self.on_view_change("Month") if self.on_view_change else None, icon=ft.Icons.CALENDAR_MONTH),
                 ft.TextButton(translations.get("week_view"), on_click=lambda e: self.on_view_change("Week") if self.on_view_change else None, icon=ft.Icons.VIEW_WEEK),
                 ft.TextButton(translations.get("day_view"), on_click=lambda e: self.on_view_change("Day") if self.on_view_change else None, icon=ft.Icons.TODAY),
+                ft.TextButton(translations.get("diet_view"), on_click=lambda e: self.on_view_change("Diet") if self.on_view_change else None, icon=ft.Icons.RESTAURANT_MENU), 
             ]
         )
 
