@@ -42,7 +42,7 @@ Rules:
     - Extract the new end date and time (or calculate based on duration if not specified).
     - Use the exact title or a close match from the user's request.
 5.  If user wants to reschedule/move/change time of an event, extract the event name and new date/time.
-6.  Return ONLY a JSON object with the following structure (no markdown, no extra text):
+6.  Return ONLY a JSON object or an array of JSON objects with the following structure (no markdown, no extra text).
 
 Categories:
 Determine the category based on event description:
@@ -56,17 +56,54 @@ Determine the category based on event description:
 - "Personal" / "👤": shopping, errands, chores, personal
 
 For creating events/tasks:
+
+IMPORTANT: If the user mentions MULTIPLE tasks/events in one message, return an ARRAY of objects:
+
+[
+    {{
+        "action": "create",
+        "type": "event" | "task",
+        "title": "string",
+        "start": "YYYY-MM-DD HH:MM" | "AUTO",
+        "end": "YYYY-MM-DD HH:MM" | "AUTO",
+        "description": "string",
+        "priority": "High" | "Medium" | "Low",
+        "category": "Study" | "Exercise" | "Sleep" | "Food" | "Work" | "Social" | "Health" | "Personal",
+        "auto_schedule": true | false,
+        "duration_hours": number
+    }},
+    {{
+        ... second task ...
+    }}
+]
+
+If SINGLE task, you can return either a single object OR an array with one object (array is preferred for consistency).
+
+For chat or delete/reschedule actions, still return a single object (not array):
 {{
-    "action": "create",
-    "type": "event" | "task",
-    "title": "string",
-    "start": "YYYY-MM-DD HH:MM",
-    "end": "YYYY-MM-DD HH:MM",
-    "description": "string",
-    "priority": "High" | "Medium" | "Low",
-    "category": "Study" | "Exercise" | "Sleep" | "Food" | "Work" | "Social" | "Health" | "Personal",
-    "response_message": "A friendly confirmation message to show the user"
+    "action": "chat" | "delete" | "reschedule",
+    ...
 }}
+
+Smart Scheduling Rules:
+7. If the user provides a task WITHOUT specific time (e.g., "study physics tomorrow", "gym session today"):
+   - Set "auto_schedule": true in JSON
+   - Return start as "AUTO" (not a real time)
+8. If user provides specific time (e.g., "meeting at 3pm"), set "auto_schedule": false
+
+9. Duration estimation:
+   - Study/Work: 2 hours
+   - Exercise: 1 hour
+   - Sleep: 8 hours
+   - Food: 1 hour
+   - Meetings: 1 hour
+   - Social: 2 hours
+   - Default: 1 hour
+
+Examples of auto_schedule:
+- "Study physics tomorrow" → auto_schedule: true, start: "AUTO", duration_hours: 2
+- "Meeting at 3pm" → auto_schedule: false, start: "2026-01-29 15:00"
+- "Workout today" → auto_schedule: true, start: "AUTO", duration_hours: 1
 
 For deleting events:
 {{
@@ -84,10 +121,64 @@ For rescheduling events:
     "response_message": "подтверждающее сообщение"
 }}
 
-Examples:
+Examples for reschedule/delete:
 - "Move meeting with John to tomorrow at 3pm" → reschedule
 - "Reschedule dentist appointment to next week" → reschedule
 - "Change lunch time to 1pm" → reschedule
+
+10. Multiple tasks detection:
+    - "homework at 7pm and workout at 3pm" → TWO create objects
+    - "study physics, then go to gym" → TWO create objects
+    - "meeting at 2pm" → ONE create object (but still in array format)
+
+11. Conjunction keywords indicating multiple tasks:
+    - "and", "then", "also", "plus", "after that"
+    - Commas between different activities
+
+Examples for multiple tasks:
+
+User: "Homework tomorrow at 7pm and workout at 3pm"
+Response:
+[
+    {{
+        "action": "create",
+        "type": "task",
+        "title": "Homework",
+        "start": "2026-01-29 19:00",
+        "end": "2026-01-29 21:00",
+        "category": "Study",
+        "auto_schedule": false,
+        "duration_hours": 2,
+        "priority": "Medium"
+    }},
+    {{
+        "action": "create",
+        "type": "event",
+        "title": "Workout",
+        "start": "2026-01-29 15:00",
+        "end": "2026-01-29 16:00",
+        "category": "Exercise",
+        "auto_schedule": false,
+        "duration_hours": 1,
+        "priority": "Medium"
+    }}
+]
+
+User: "Study physics tomorrow"
+Response:
+[
+    {{
+        "action": "create",
+        "type": "task",
+        "title": "Study physics",
+        "start": "AUTO",
+        "end": "AUTO",
+        "category": "Study",
+        "auto_schedule": true,
+        "duration_hours": 2,
+        "priority": "Medium"
+    }}
+]
 
 If the user's request is not about scheduling, deleting, or rescheduling, just chat normally but return a JSON with action="chat":
 {{
@@ -133,13 +224,37 @@ If the user's request is not about scheduling, deleting, or rescheduling, just c
             if text_response.endswith("```"):
                 text_response = text_response[:-3]
             
-            return json.loads(text_response.strip())
+            text_response = text_response.strip()
             
+            parsed = json.loads(text_response)
+            
+            # Нормализуем: если не массив, оборачиваем в массив при необходимости
+            if isinstance(parsed, dict):
+                # Одиночное действие (chat, delete, reschedule) или одна задача
+                if parsed.get("action") in ["chat", "delete", "reschedule"]:
+                    # Возвращаем как есть (не массив)
+                    return parsed
+                else:
+                    # Одна create задача - оборачиваем в массив для единообразия
+                    return [parsed]
+            elif isinstance(parsed, list):
+                # Уже массив
+                return parsed
+            else:
+                raise ValueError("Unexpected response format")
+            
+        except json.JSONDecodeError as e:
+            print(f"JSON Parse Error: {e}")
+            print(f"Response text: {text_response}")
+            return {
+                "action": "chat",
+                "response_message": "Sorry, I had trouble understanding that. Could you rephrase?"
+            }
         except Exception as e:
             error_str = str(e)
             print(f"AI Error: {error_str}")
             
-            if "rate_limit" in error_str.lower():
+            if "rate_limit" in error_str.lower() or "429" in error_str or "Resource exhausted" in error_str:
                 return {
                     "action": "chat",
                     "response_message": "I'm currently receiving too many requests. Please try again in a moment."

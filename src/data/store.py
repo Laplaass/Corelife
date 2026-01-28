@@ -185,5 +185,102 @@ class EventStore:
                     
         return results
 
+    def get_events_for_date(self, date):
+        """Получить все события для конкретной даты (YYYY-MM-DD)"""
+        if self.collection is None or not self.user_id:
+            return []
+        
+        from datetime import datetime
+        try:
+            target_date = datetime.strptime(date, "%Y-%m-%d").date()
+        except ValueError:
+            return []
+        
+        events = self.get_events_for_month(target_date.year, target_date.month)
+        
+        # Фильтруем только события на эту дату
+        result = []
+        for event in events:
+            try:
+                event_date_str = event["start"].split(" ")[0]
+                event_date = datetime.strptime(event_date_str, "%Y-%m-%d").date()
+                if event_date == target_date:
+                    result.append(event)
+            except (ValueError, IndexError):
+                continue
+        
+        return result
+    
+    def get_free_slots(self, date, duration_hours=1, category="Personal"):
+        """
+        Найти свободные слоты в указанную дату
+        
+        Args:
+            date: дата в формате YYYY-MM-DD
+            duration_hours: продолжительность в часах
+            category: категория для определения оптимального времени
+        
+        Returns:
+            list of dicts: [{"start": "HH:MM", "end": "HH:MM", "score": int}, ...]
+        """
+        from datetime import datetime, timedelta
+        
+        events = self.get_events_for_date(date)
+        
+        # Получаем оптимальное время для категории
+        optimal = self.OPTIMAL_TIMES.get(category, {"start": 9, "end": 21})
+        optimal_start = optimal["start"]
+        optimal_end = optimal["end"]
+        
+        # Создаем список занятых часов
+        busy_slots = []
+        for event in events:
+            try:
+                time_part = event["start"].split(" ")[1] if " " in event["start"] else "09:00"
+                hour = int(time_part.split(":")[0])
+                busy_slots.append(hour)
+            except (ValueError, IndexError):
+                continue
+        
+        # Находим свободные слоты в оптимальное время
+        free_slots = []
+        
+        # Для сна особая логика (ночное время)
+        if category == "Sleep":
+            for hour in range(22, 24):
+                if hour not in busy_slots:
+                    score = 100
+                    free_slots.append({
+                        "start": f"{hour:02d}:00",
+                        "end": f"{(hour + duration_hours) % 24:02d}:00",
+                        "score": score
+                    })
+        else:
+            # Обычная логика для остальных категорий
+            for hour in range(optimal_start, optimal_end):
+                if hour not in busy_slots and hour + duration_hours <= optimal_end:
+                    mid_time = (optimal_start + optimal_end) / 2
+                    distance_from_optimal = abs(hour - mid_time)
+                    score = 100 - int(distance_from_optimal * 10)
+                    
+                    free_slots.append({
+                        "start": f"{hour:02d}:00",
+                        "end": f"{hour + duration_hours:02d}:00",
+                        "score": max(score, 1)
+                    })
+        
+        # Если нет слотов в оптимальное время, ищем в любое время (8:00 - 22:00)
+        if not free_slots:
+            for hour in range(8, 22):
+                if hour not in busy_slots:
+                    free_slots.append({
+                        "start": f"{hour:02d}:00",
+                        "end": f"{hour + duration_hours:02d}:00",
+                        "score": 30
+                    })
+        
+        free_slots.sort(key=lambda x: x["score"], reverse=True)
+        return free_slots
+
 # Global instance
 store = EventStore()
