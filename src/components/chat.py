@@ -5,19 +5,25 @@ from services.ai_service import AIService
 
 class ChatWidget(ft.Column):
     MOTIVATION_QUOTES = [
-        "🌟 Great planning leads to great results!",
-        "💪 You've got this! Let's organize your day.",
-        "🎯 Success is the sum of small efforts repeated daily.",
-        "⚡ Time management is life management!",
-        "🚀 Small steps today, big achievements tomorrow!",
-        "💡 Try: 'Study physics tomorrow' and I'll find the best time!",
-        "🤖 I can auto-schedule your tasks - just tell me what to do!",
+    "💡 'The only way to do great work is to love what you do.' - Steve Jobs",
+    "🎯 'Success is not final, failure is not fatal: it is the courage to continue that counts.' - Winston Churchill",
+    "⚡ 'The future depends on what you do today.' - Mahatma Gandhi",
+    "🚀 'Don't watch the clock; do what it does. Keep going.' - Sam Levenson",
+    "💪 'Believe you can and you're halfway there.' - Theodore Roosevelt",
+    "🌟 'The secret of getting ahead is getting started.' - Mark Twain",
+    "📚 'Education is the most powerful weapon which you can use to change the world.' - Nelson Mandela",
+    "🔥 'It does not matter how slowly you go as long as you do not stop.' - Confucius",
+    "✨ 'Your time is limited, don't waste it living someone else's life.' - Steve Jobs",
+    "🎓 'The expert in anything was once a beginner.' - Helen Hayes",
+    "🏆 'The only impossible journey is the one you never begin.' - Tony Robbins",
+    "💎 'Quality is not an act, it is a habit.' - Aristotle",
     ]
 
     def __init__(self, page: ft.Page, on_refresh=None):
         super().__init__()
         self.page_ref = page
         self.on_refresh = on_refresh
+        self.calendar_ref = None
         self.ai_service = AIService()
         self.horizontal_alignment = ft.CrossAxisAlignment.END
         self.spacing = 10
@@ -97,7 +103,7 @@ class ChatWidget(ft.Column):
             update=False
         )
 
-        if random.random() < 0.3:  # 30% шанс показать цитату
+        if random.random() < 1.0:  # 100% шанс показать цитату
             self.add_message(
                 random.choice(self.MOTIVATION_QUOTES),
                 is_user=False,
@@ -328,10 +334,7 @@ class ChatWidget(ft.Column):
                         )
                     
                     # Обновляем календарь
-                    if self.on_refresh:
-                        self.on_refresh()
-                    else:
-                        self.page_ref.update()
+                    self.refresh_calendar()
                 
                 return
             
@@ -370,10 +373,7 @@ class ChatWidget(ft.Column):
                     
                     self.add_message(result.get("response_message", "Event created!"), is_user=False)
                 
-                if self.on_refresh:
-                    self.on_refresh()
-                else:
-                    self.page_ref.update()
+                self.refresh_calendar()
                 return
             
             if result.get("action") == "delete":
@@ -383,10 +383,7 @@ class ChatWidget(ft.Column):
                     store.delete_event(found_event["id"])
                     self.add_message(f"🗑️ Deleted: {found_event['title']}", is_user=False)
                     
-                    if self.on_refresh:
-                        self.on_refresh()
-                    else:
-                        self.page_ref.update()
+                    self.refresh_calendar()
                 else:
                     self.add_message(f"❌ Could not find event '{result.get('title')}'", is_user=False)
                 return
@@ -405,10 +402,7 @@ class ChatWidget(ft.Column):
                     if success:
                         self.add_message(result.get("response_message", "Event rescheduled!"), is_user=False)
                         
-                        if self.on_refresh:
-                            self.on_refresh()
-                        else:
-                            self.page_ref.update()
+                        self.refresh_calendar()
                     else:
                         self.add_message("❌ Failed to reschedule. Please try again.", is_user=False)
                 else:
@@ -420,3 +414,10 @@ class ChatWidget(ft.Column):
             print(f"Error in process_command: {e}")
             import traceback
             traceback.print_exc()
+    def refresh_calendar(self):
+        """Универсальный метод обновления календаря"""
+        if self.on_refresh:
+            self.on_refresh()
+        if self.calendar_ref:
+            self.calendar_ref.refresh()
+        self.page_ref.update()
