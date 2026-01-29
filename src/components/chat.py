@@ -2,6 +2,7 @@ import flet as ft
 import random
 from data.store import store
 from services.ai_service import AIService
+from services.task_scheduler import TaskScheduler  # ✅ НОВЫЙ ИМПОРТ
 
 class ChatWidget(ft.Column):
     MOTIVATION_QUOTES = [
@@ -25,6 +26,7 @@ class ChatWidget(ft.Column):
         self.on_refresh = on_refresh
         self.calendar_ref = None
         self.ai_service = AIService()
+        self.task_scheduler = TaskScheduler()  # ✅ НОВЫЙ ПЛАНИРОВЩИК
         self.horizontal_alignment = ft.CrossAxisAlignment.END
         self.spacing = 10
         
@@ -87,7 +89,7 @@ class ChatWidget(ft.Column):
             self.fab
         ]
         
-        # Initial greeting
+        # ✅ НОВОЕ ПРИВЕТСТВИЕ С ПЛАНИРОВЩИКОМ
         self.add_message(
             "👋 Welcome to Corelife!\n\n"
             "⏰ Did you know? Proper time management can:\n"
@@ -98,7 +100,8 @@ class ChatWidget(ft.Column):
             "✓ Schedule smart - I'll find the best time\n"
             "✓ Stay organized - Never miss a deadline\n"
             "✓ Balance life - Work, study, rest in harmony\n\n"
-            "💪 Let's make today productive! What's on your mind?",
+            "💪 What's on your mind? 💡\n"
+            "Share your tasks for today, and I'll schedule them efficiently!",
             is_user=False,
             update=False
         )
@@ -148,52 +151,35 @@ class ChatWidget(ft.Column):
         title = result["title"]
         category = result.get("category", "Personal")
         priority = result.get("priority", "Medium")
-        duration = result.get("duration_hours", 1)
+        duration_hours = result.get("duration_hours", 1)
         
-        # Определяем дату
-        # Парсим из start (формат может быть "YYYY-MM-DD AUTO" или просто "AUTO")
-        start_str = result.get("start", "AUTO")
+        # Получаем оптимальное время для категории
+        optimal_time = store.OPTIMAL_TIMES.get(category, {"start": 9, "end": 17})
         
-        if "AUTO" in str(start_str) or start_str == "AUTO":
-            # Если только AUTO, берем сегодня
-            target_date = datetime.now().date()
-        else:
-            # Парсим дату из строки
+        # Определяем дату (если не указана - сегодня)
+        if "start" in result and result["start"] != "AUTO":
+            # Используем указанную дату
             try:
-                date_part = str(start_str).split(" ")[0]
-                target_date = datetime.strptime(date_part, "%Y-%m-%d").date()
-            except (ValueError, IndexError):
-                target_date = datetime.now().date()
-        
-        # Получаем свободные слоты
-        date_str = target_date.strftime("%Y-%m-%d")
-        free_slots = store.get_free_slots(date_str, duration_hours=duration, category=category)
-        
-        if not free_slots:
-            # Нет свободных слотов сегодня, пробуем завтра
-            target_date = target_date + timedelta(days=1)
-            date_str = target_date.strftime("%Y-%m-%d")
-            free_slots = store.get_free_slots(date_str, duration_hours=duration, category=category)
-            
-            if not free_slots:
-                # Всё ещё нет? Используем дефолтное время
-                self.add_message(
-                    f"⚠️ Your schedule is quite busy! I'll add '{title}' but please adjust the time manually.",
-                    is_user=False
-                )
-                # Дефолтное время по категории
-                optimal = store.OPTIMAL_TIMES.get(category, {"start": 9})
-                default_hour = optimal["start"]
-                best_slot = {
-                    "start": f"{default_hour:02d}:00",
-                    "end": f"{(default_hour + duration) % 24:02d}:00",
-                }
-            else:
-                best_slot = free_slots[0]  # Берем лучший слот
+                event_date = datetime.strptime(result["start"].split(" ")[0], "%Y-%m-%d")
+            except:
+                event_date = datetime.now()
         else:
-            best_slot = free_slots[0]  # Берем лучший слот
+            event_date = datetime.now()
         
-        # Формируем финальное время
+        date_str = event_date.strftime("%Y-%m-%d")
+        
+        # Получаем события на этот день
+        existing_events = store.get_events_for_date(date_str)
+        
+        # Находим лучший свободный слот
+        best_slot = self.find_best_time_slot(
+            existing_events,
+            optimal_time["start"],
+            optimal_time["end"],
+            duration_hours,
+            event_date
+        )
+        
         final_start = f"{date_str} {best_slot['start']}"
         final_end = f"{date_str} {best_slot['end']}"
         
@@ -227,6 +213,52 @@ class ChatWidget(ft.Column):
         self.add_message(response, is_user=False)
         
         # НЕ обновляем здесь - обновление произойдет в process_command после всех задач
+    
+    def find_best_time_slot(self, existing_events, preferred_start, preferred_end, duration_hours, target_date):
+        """Находит лучший свободный слот для события"""
+        from datetime import datetime, timedelta
+        
+        # Создаем список занятых интервалов
+        busy_intervals = []
+        for event in existing_events:
+            try:
+                start_str = event["start"].split(" ")[1] if " " in event["start"] else "09:00"
+                end_str = event["end"].split(" ")[1] if " " in event["end"] else "10:00"
+                
+                start_time = datetime.strptime(start_str, "%H:%M")
+                end_time = datetime.strptime(end_str, "%H:%M")
+                
+                busy_intervals.append((start_time.hour * 60 + start_time.minute,
+                                     end_time.hour * 60 + end_time.minute))
+            except:
+                continue
+        
+        # Ищем свободный слот в предпочтительном диапазоне
+        duration_minutes = int(duration_hours * 60)
+        
+        for hour in range(preferred_start, preferred_end):
+            start_minutes = hour * 60
+            end_minutes = start_minutes + duration_minutes
+            
+            # Проверяем пересечения
+            is_free = True
+            for busy_start, busy_end in busy_intervals:
+                if not (end_minutes <= busy_start or start_minutes >= busy_end):
+                    is_free = False
+                    break
+            
+            if is_free:
+                start_time = f"{hour:02d}:00"
+                end_hour = (hour + int(duration_hours))
+                end_minute = int((duration_hours % 1) * 60)
+                end_time = f"{end_hour:02d}:{end_minute:02d}"
+                return {"start": start_time, "end": end_time}
+        
+        # Если не нашли в предпочтительном диапазоне, используем первый доступный слот
+        default_start = f"{preferred_start:02d}:00"
+        default_end_hour = preferred_start + int(duration_hours)
+        default_end = f"{default_end_hour:02d}:00"
+        return {"start": default_start, "end": default_end}
     
     def show_daily_schedule(self, date_str):
         """Показать краткое расписание на день"""
@@ -291,8 +323,57 @@ class ChatWidget(ft.Column):
         self.process_command(text)
 
     def process_command(self, text):
+        """
+        ✅ ОБНОВЛЕНО: Теперь использует task_scheduler для планирования дня
+        """
         try:
-            # Используем AI для обработки команды
+            # ✅ НОВАЯ ЛОГИКА: Проверяем хочет ли пользователь запланировать весь день
+            text_lower = text.lower()
+            is_day_planning = any(keyword in text_lower for keyword in [
+                "plan my day", "schedule my day", "запланируй день", 
+                "распредели задачи", "мои задачи на сегодня", "что мне делать сегодня"
+            ])
+            
+            if is_day_planning:
+                # Используем task_scheduler для планирования всего дня
+                from datetime import datetime
+                current_date = datetime.now()
+                
+                result = self.task_scheduler.parse_tasks_from_text(text, current_date)
+                
+                # Создаём автоматически запланированные задачи
+                for task in result["auto_scheduled"]:
+                    store.add_event(
+                        title=task["title"],
+                        start_date=task["start"],
+                        end_date=task["end"],
+                        description=task.get("description", ""),
+                        event_type=task.get("type", "event"),
+                        priority=task.get("priority", "Medium"),
+                        category=task.get("category", "Personal")
+                    )
+                
+                # Формируем ответ
+                response = "✅ I've scheduled your day!\n\n"
+                response += "📅 **Auto-scheduled:**\n"
+                for task in result["auto_scheduled"]:
+                    emoji = store.CATEGORIES.get(task["category"], "📌")
+                    time_str = task["start"].split(" ")[1] if " " in task["start"] else "09:00"
+                    response += f"• {time_str} - {emoji} {task['title']}\n"
+                
+                if result["needs_clarification"]:
+                    response += "\n⏰ **Need your input:**\n"
+                    for task in result["needs_clarification"]:
+                        emoji = store.CATEGORIES.get(task["category"], "📌")
+                        suggested = task.get("suggested_start", "").split(" ")[1] if " " in task.get("suggested_start", "") else "Not set"
+                        response += f"• {emoji} {task['title']}\n  Suggested: {suggested}\n"
+                    response += "\nPlease specify when you'd like to do these tasks!"
+                
+                self.add_message(response, is_user=False)
+                self.refresh_calendar()
+                return
+            
+            # ✅ ОБЫЧНАЯ ЛОГИКА: Используем AI для разбора отдельных команд
             result = self.ai_service.process_message(text)
             
             # Проверяем формат ответа
@@ -351,14 +432,12 @@ class ChatWidget(ft.Column):
                 else:
                     # Обычный чат
                     self.add_message(result.get("response_message", "I'm here to help!"), is_user=False)
-                return
             
-            if result.get("action") == "create":
-                # Одна задача (но этот случай уже обработан выше через массив)
-                # Оставляем для обратной совместимости
+            elif result.get("action") == "create":
+                # Единичная задача
                 auto_schedule = result.get("auto_schedule", False)
                 
-                if auto_schedule or result.get("start") == "AUTO" or "AUTO" in str(result.get("start", "")):
+                if auto_schedule or result.get("start") == "AUTO":
                     self.smart_schedule_event(result)
                 else:
                     store.add_event(
@@ -370,61 +449,63 @@ class ChatWidget(ft.Column):
                         priority=result.get("priority", "Medium"),
                         category=result.get("category", "Personal")
                     )
-                    
-                    self.add_message(result.get("response_message", "Event created!"), is_user=False)
+                    self.add_message(
+                        f"✅ Scheduled: {result['title']} at {result['start']}",
+                        is_user=False
+                    )
                 
                 self.refresh_calendar()
-                return
             
-            if result.get("action") == "delete":
-                found_event = self.find_event_by_title(result.get("title", ""))
+            elif result.get("action") == "delete":
+                title = result.get("title", "")
+                event = self.find_event_by_title(title)
                 
-                if found_event:
-                    store.delete_event(found_event["id"])
-                    self.add_message(f"🗑️ Deleted: {found_event['title']}", is_user=False)
-                    
+                if event:
+                    store.delete_event(event["id"])
+                    self.add_message(
+                        result.get("response_message", f"✅ Deleted: {title}"),
+                        is_user=False
+                    )
                     self.refresh_calendar()
                 else:
-                    self.add_message(f"❌ Could not find event '{result.get('title')}'", is_user=False)
-                return
+                    self.add_message(
+                        f"❌ Event '{title}' not found. Please check the name and try again.",
+                        is_user=False
+                    )
             
-            if result.get("action") == "reschedule":
-                found_event = self.find_event_by_title(result.get("title", ""))
+            elif result.get("action") == "reschedule":
+                title = result.get("title", "")
+                event = self.find_event_by_title(title)
                 
-                if found_event:
-                    updates = {
-                        "start": result["new_start"],
-                        "end": result["new_end"]
-                    }
-                    
-                    success = store.update_event(found_event["id"], updates)
-                    
-                    if success:
-                        self.add_message(result.get("response_message", "Event rescheduled!"), is_user=False)
-                        
-                        self.refresh_calendar()
-                    else:
-                        self.add_message("❌ Failed to reschedule. Please try again.", is_user=False)
+                if event:
+                    store.update_event(
+                        event["id"],
+                        {
+                            "start": result.get("new_start"),
+                            "end": result.get("new_end")
+                        }
+                    )
+                    self.add_message(
+                        result.get("response_message", f"✅ Rescheduled: {title}"),
+                        is_user=False
+                    )
+                    self.refresh_calendar()
                 else:
-                    self.add_message(f"❌ Could not find event '{result.get('title')}'", is_user=False)
-                return
-            
+                    self.add_message(
+                        f"❌ Event '{title}' not found. Please check the name and try again.",
+                        is_user=False
+                    )
+        
         except Exception as e:
-            import traceback
-            error_details = traceback.format_exc()
             print(f"Error in process_command: {e}")
-            print(f"Full traceback:\n{error_details}")
-            
-            # Показываем пользователю дружелюбное сообщение
+            import traceback
+            traceback.print_exc()
             self.add_message(
-                "😅 Oops! Something went wrong. Could you try rephrasing your request?\n\n"
-                "💡 Tip: Try one task at a time for best results!",
+                "❌ Sorry, I encountered an error. Please try again.",
                 is_user=False
             )
+    
     def refresh_calendar(self):
-        """Универсальный метод обновления календаря"""
+        """Обновляет календарь после изменений"""
         if self.on_refresh:
             self.on_refresh()
-        if self.calendar_ref:
-            self.calendar_ref.refresh()
-        self.page_ref.update()
